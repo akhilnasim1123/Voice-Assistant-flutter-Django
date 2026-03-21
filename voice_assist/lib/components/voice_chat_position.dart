@@ -1,7 +1,15 @@
+import 'dart:convert';
+import 'dart:developer';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:record/record.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
+import 'package:mime/mime.dart';
+import 'package:http/http.dart' as http;
+
 
 class VoiceChatPosition extends StatefulWidget {
   const VoiceChatPosition({super.key});
@@ -11,29 +19,70 @@ class VoiceChatPosition extends StatefulWidget {
 }
 
 class _VoiceChatPositionState extends State<VoiceChatPosition>
-
-
-  with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin {
   double containerSize = 60;
   bool isPressed = false;
 
   late AnimationController _controller;
-final audioRecorder = AudioRecorder();
+  final audioRecorder = AudioRecorder();
   String? audioPath;
+  File? voiceFile;
 
-Future<void> startRecording() async {
-  if (await Permission.microphone.request().isGranted) {
-    if (await audioRecorder.isEncoderSupported(AudioEncoder.aacLc)) {
-      await audioRecorder.start(const RecordConfig(), path: 'aFullPath/myFile.m4a');
+  Future<void> startRecording() async {
+    if (await Permission.microphone.request().isGranted) {
+      if (await audioRecorder.isEncoderSupported(AudioEncoder.aacLc)) {
+        final tempDir = await getTemporaryDirectory();
+        final filePath = '${tempDir.path}/voice_message.aac';
+        await audioRecorder.start(const RecordConfig(), path: filePath);
+      }
     }
   }
+
+  Future<void> stopRecording() async {
+    audioPath = await audioRecorder.stop();
+    voiceFile = File(audioPath!);
+
+    if (await voiceFile!.exists()) {
+      log("Audio recorded at path: $audioPath");
+      await sendFile();
+    }else{
+      log("File does not exist at path: $audioPath");
+    }
+  }
+
+Future <void> sendFile() async {
+  String? base64voice;
+  if (voiceFile != null) {
+    final bytes = await voiceFile!.readAsBytes();
+    final mimeType = lookupMimeType(voiceFile!.path) ?? 'audio/aac';
+    final base64Str = base64Encode(bytes);
+    base64voice = 'data:$mimeType;base64,$base64Str';
+  }
+  final data = {
+    "type": "voice",
+    "content": base64voice,
+  };
+  log("Prepared data for sending: ${data['type']}, content length: ${base64voice?.length ?? 0}");
+  try{
+    final response = await http.post(
+      Uri.parse('http://172.17.255.255:8000/api/v1/upload/'), 
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(data),
+    );
+    if (response.statusCode == 200) {
+      log("File sent successfully");
+    } else {
+      log("Failed to send file: ${response.statusCode}");
+    }
+  }catch(e){
+    log("Error sending file: $e");
+  }
+
+
+
 }
 
-Future<void> stopRecording() async {
-  final path = await audioRecorder.stop();
-  audioPath = path;
-  print('Recording saved to: $audioPath');
-}
+
 
   @override
   void initState() {
@@ -48,7 +97,7 @@ Future<void> stopRecording() async {
   @override
   void dispose() {
     _controller.dispose();
-  audioRecorder.dispose();
+    audioRecorder.dispose();
     super.dispose();
   }
 
@@ -147,13 +196,7 @@ class RingPainter extends CustomPainter {
 
     final rect = Rect.fromLTWH(0, 0, size.width, size.height);
 
-    canvas.drawArc(
-      rect,
-      0,
-      3.5, 
-      false,
-      paint,
-    );
+    canvas.drawArc(rect, 0, 3.5, false, paint);
   }
 
   @override
