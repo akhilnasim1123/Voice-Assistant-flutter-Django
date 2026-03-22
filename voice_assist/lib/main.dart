@@ -1,9 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:voice_assist/container/home.dart';
+import 'package:voice_assist/provider/provider.dart';
 
 void main() {
-  runApp(const MyApp());
-}
+  
+  runApp(
+    ChangeNotifierProvider(
+      create: (context) => ContentProvider(),
+      child: const MyApp()
+    )
+    );
+} 
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
